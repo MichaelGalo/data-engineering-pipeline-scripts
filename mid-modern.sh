@@ -45,7 +45,6 @@ EOL
 
 # Create src/test/test_main.py with starter test code
 cat > $PROJECT_ROOT/tests/test_main.py <<EOL
-import pytest
 def test_placeholder():
     assert True
 EOL
