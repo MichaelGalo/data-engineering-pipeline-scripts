@@ -97,6 +97,20 @@ def setup_logging():
 # logger = setup_logging()
 EOL
 
+# Create GitHub Pull Request Template
+cat > $PROJECT_ROOT/.github/pull_request_template.md <<EOL
+# Description
+
+
+
+
+## Type of change
+
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Chore
+EOL
+
 # Create GitHub Actions workflow for CI
 cat > $PROJECT_ROOT/.github/workflows/ci.yml <<EOL
 name: CI Pipeline
