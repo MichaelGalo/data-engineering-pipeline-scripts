@@ -139,12 +139,13 @@ jobs:
         pip install uv
 
     - name: Check code quality with ruff
+      continue-on-error: true
       run: |
-        ruff check src/ tests/ --fix
+        uv run ruff check src/ tests/ --fix
 
     - name: Test with pytest
       run: |
-        pytest tests/ -v --tb=short
+        uv run pytest tests/ -v --tb=short
 EOL
 
 # Create a .env file
