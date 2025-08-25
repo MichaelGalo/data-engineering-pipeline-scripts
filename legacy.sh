@@ -51,6 +51,7 @@ EOL
 
 # Create Rotating JSON Logger
 cat > $PROJECT_ROOT/src/logger.py <<EOL
+import os
 import logging
 import logging.handlers
 import json
@@ -63,8 +64,8 @@ def format_json(record):
         "time": datetime.datetime.fromtimestamp(record.created).isoformat(),
         "logger": record.name,
         "level": record.levelname,
+        "message": record.getMessage(),
         "line": record.lineno,
-        "message": record.getMessage()
     }
     if record.exc_info:
         log_entry["exception"] = logging._defaultFormatter.formatException(
@@ -78,8 +79,12 @@ def setup_logging():
     formatter = logging.Formatter()
     formatter.format = format_json
 
+    log_dir = "./logs"
+    os.makedirs(log_dir, exist_ok=True)   # ensure folder exists
+    log_file = os.path.join(log_dir, "application.log")
+
     file_handler = logging.handlers.RotatingFileHandler(
-        "./logs/application.log", maxBytes=2 * 1024 * 1024, backupCount=1
+        log_file, maxBytes=2 * 1024 * 1024, backupCount=1
     )
     file_handler.setFormatter(formatter)
 
@@ -88,6 +93,7 @@ def setup_logging():
 
     logger = logging.getLogger("json_logger")
     logger.setLevel(logging.INFO)
+
     if not logger.handlers:
         logger.addHandler(file_handler)
         logger.addHandler(console_handler)
