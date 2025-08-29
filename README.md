@@ -5,9 +5,9 @@ This repository contains a collection of shell scripts designed to quickly spin 
 ## Scripts Overview
 
 - **legacy.sh**: Sets up a project following legacy data engineering practices, focusing on ETL solutions and smaller batch processing jobs.
-- **mid-modern.sh**: Configures a project with a contemporary approach, integrating modern ELT practices with dbt and orchestration with prefect.
-- **neutral-uv.sh**: Creates a neutral architecture setup, emphasizing vendor-agnostic and universally applicable solutions. Designed for flexibility and adaptability across different environments.
-- **ultra-modern.sh**: Establishes a cutting-edge data engineering project, leveraging the latest technologies and a data lake house approach with DuckDb and Ducklake.
+- **contemporary.sh**: Configures a project with a contemporary approach, integrating modern ELT practices with dbt and orchestration with prefect.
+- **neutral.sh**: Creates a neutral architecture setup, emphasizing vendor-agnostic and universally applicable solutions. Designed for flexibility and adaptability across different environments.
+- **modern.sh**: Establishes a cutting-edge data engineering project, leveraging the latest technologies and a data lake house approach with DuckDb and Ducklake.
 
 ## Purpose
 
