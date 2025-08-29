@@ -551,6 +551,8 @@ __marimo__/
 
 .DS_Store
 /data
+*.catalog
+*.db
 EOL
 
 # Create sql/query.sql with starter content
