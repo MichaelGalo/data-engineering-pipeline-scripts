@@ -385,6 +385,8 @@ EOL
 cd $PROJECT_ROOT
 python3 -m uv init
 
+rm main.py
+
 uv add pytest ruff dotenv prefect dbt-core dbt-duckdb minio 
 
 source .venv/bin/activate

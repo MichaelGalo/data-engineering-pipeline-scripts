@@ -383,6 +383,8 @@ EOL
 cd $PROJECT_ROOT
 python3 -m uv init
 
+rm main.py
+
 uv add pytest ruff dotenv
 
 source .venv/bin/activate
