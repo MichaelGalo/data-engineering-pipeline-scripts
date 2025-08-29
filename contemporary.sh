@@ -379,6 +379,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 .DS_Store
+data/
 EOL
 
 # Set up virtual environment & package manager

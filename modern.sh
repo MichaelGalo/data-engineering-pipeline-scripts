@@ -161,32 +161,187 @@ EOL
 
 # Create src/main.py with starter code
 cat > $PROJECT_ROOT/src/main.py <<EOL
-#!/usr/bin/env python3
-import duckdb
+from logger import setup_logging
+import os
+import sys
+import time
+from utils import duckdb_con_init, ducklake_init, ducklake_attach_minio, ducklake_refresh, schema_creation, execute_SQL_file, update_data
+from dotenv import load_dotenv
+current_path = os.path.dirname(os.path.abspath(__file__))
+parent_path = os.path.abspath(os.path.join(current_path, ".."))
+sys.path.append(parent_path)
+load_dotenv()
 
-duckdb.install_extension("ducklake")
-duckdb.load_extension("ducklake")
+logger = setup_logging()
 
-con = duckdb.connect("my_ducklake.db")
-# Attach ducklake to the absolute path of my_ducklake.db & add a (DATA_PATH example/path)
-# con.execute("ATTACH 'ducklake:my_ducklake.db' AS my_lake")
+def db_sync():
+    total_start_time = time.time()
+    logger.info("Starting database sync")
+    data_path = os.path.join(parent_path, "data")
+    catalog_path = os.path.join(parent_path, "catalog.ducklake")
+    minio_bucket = os.getenv('MINIO_BUCKET_NAME')
 
-con.execute("CREATE SCHEMA IF NOT EXISTS BRONZE")
-con.execute("CREATE SCHEMA IF NOT EXISTS SILVER")
-con.execute("CREATE SCHEMA IF NOT EXISTS GOLD")
+    con = duckdb_con_init()
+    ducklake_init(con, data_path, catalog_path)
+    ducklake_attach_minio(con)
+    schema_creation(con)
+    update_data(con, logger, minio_bucket, "RAW")
+    ducklake_refresh(con)
 
-# example query
-# with open ("sql/query.sql", "r") as f:
-#     query = f.read()
-# con.execute(query)
+    staged_queries = [
+        'SQL/example_1.sql',
+        'SQL/example_2.sql'
+    ]
 
-def main():
-    print("Welcome to a duckdb pipeline!")
+    cleaned_queries = [
+        'SQL/example_3.sql',
+        'SQL/example_4.sql'
+    ]
+
+    execute_SQL_file(con, staged_queries)
+    execute_SQL_file(con, cleaned_queries)
+
+    con.close()
+    logger.info("Database connection closed")
+
+    total_end_time = time.time()
+    logger.info(f"Database sync completed in {total_end_time - total_start_time:.2f} seconds")
 
 if __name__ == "__main__":
-    main()
+    db_sync()
 EOL
 
+# Create src/utils with duckdb-specific utility functions
+mkdir -p $PROJECT_ROOT/src/utils
+cat > $PROJECT_ROOT/src/utils/duckdb_utils.py <<EOL
+import sys
+import os
+import io
+import duckdb
+import polars as pl
+current_path = os.path.dirname(os.path.abspath(__file__))
+parent_path = os.path.abspath(os.path.join(current_path, ".."))
+sys.path.append(parent_path)
+from minio import Minio
+from logger import setup_logging
+
+logger = setup_logging()
+
+def execute_SQL_file(con, list_of_file_paths):
+    for file_path in list_of_file_paths:
+        full_path = os.path.join(parent_path, file_path)
+        if not os.path.exists(full_path):
+            logger.error(f"SQL file not found: {full_path}")
+            raise FileNotFoundError(full_path)
+
+    with open(full_path, 'r') as file:
+        sql = file.read()
+    con.execute(sql)
+
+def duckdb_con_init():
+    logger.info("Installing and loading DuckDB extensions")
+    duckdb.install_extension("ducklake")
+    duckdb.install_extension("httpfs")
+    duckdb.load_extension("ducklake")
+    duckdb.load_extension("httpfs")
+    logger.info("DuckDB extensions loaded successfully")
+
+    con = duckdb.connect(':memory:')
+    logger.info(f"Connected to in-memory DuckDB database")
+    return con
+
+def ducklake_init(con, data_path, catalog_path):
+    logger.info(f"Attaching DuckLake with data path: {data_path}")
+    con.execute(f"ATTACH 'ducklake:{catalog_path}' AS my_ducklake (DATA_PATH '{data_path}')")
+    con.execute("USE my_ducklake")
+    logger.info("DuckLake attached and activated successfully")
+
+def ducklake_attach_minio(con):
+    logger.info("Configuring MinIO S3 settings")
+    con.execute(f"SET s3_access_key_id = '{os.getenv('MINIO_ACCESS_KEY')}'")
+    con.execute(f"SET s3_secret_access_key = '{os.getenv('MINIO_SECRET_KEY')}'")
+    con.execute(f"SET s3_endpoint = '{os.getenv('MINIO_EXTERNAL_URL')}'")
+    con.execute("SET s3_use_ssl = false")
+    con.execute("SET s3_url_style = 'path'")
+    logger.info("MinIO S3 configuration completed")
+
+def schema_creation(con):
+    logger.info("Creating database schemas")
+    con.execute("CREATE SCHEMA IF NOT EXISTS RAW")
+    con.execute("CREATE SCHEMA IF NOT EXISTS STAGED")
+    con.execute("CREATE SCHEMA IF NOT EXISTS CLEANED")
+    logger.info("Database schemas created successfully")
+
+def ducklake_refresh(con): # ensures most up to date .parquet is used
+    logger.info("Refreshing DuckLake metadata to most up-to-date")
+    con.execute("CALL ducklake_expire_snapshots('my_ducklake', older_than => now())")
+    con.execute("CALL ducklake_cleanup_old_files('my_ducklake', cleanup_all => true)")
+
+def update_data(con, logger, bucket_name, folder_path): # inits db & refreshes on data updates
+    logger.info("Refreshing database with the most current data")
+    file_list_query = f"SELECT * FROM glob('s3://{bucket_name}/{folder_path}/*.parquet')"
+
+    try:
+        files_result = con.execute(file_list_query).fetchall()
+        file_paths = []
+        for row in files_result:
+            file_paths.append(row[0])
+        
+        logger.info(f"Found {len(file_paths)} files in MinIO bucket")
+        
+        for file_path in file_paths:
+            file_name = os.path.basename(file_path).replace('.parquet', '')
+            table_name = file_name.upper().replace('-', '_').replace(' ', '_')
+
+            logger.info(f"Processing file: {file_path} -> table: {folder_path}.{table_name}")
+
+            query = f"""
+            CREATE OR REPLACE TABLE {folder_path}.{table_name} AS
+            SELECT 
+                *,
+                '{file_name}' AS _source_file,
+                CURRENT_TIMESTAMP AS _ingestion_timestamp,
+                ROW_NUMBER() OVER () AS _record_id
+            FROM read_parquet('{file_path}');
+            """
+            
+            con.execute(query)
+            logger.info(f"Successfully created or updated {folder_path}.{table_name}")
+
+    except Exception as e:
+        logger.error(f"Error processing files from MinIO: {e}")
+        raise
+
+
+def write_data_to_minio(parquet_buffer, bucket_name, object_name, folder_name=None):
+    minio_client = Minio(
+        os.getenv("MINIO_EXTERNAL_URL"),
+        access_key=os.getenv("MINIO_ACCESS_KEY"),
+        secret_key=os.getenv("MINIO_SECRET_KEY"),
+        secure=False
+    )
+
+    parquet_buffer.seek(0)
+    data_bytes = parquet_buffer.read()
+
+    if folder_name:
+        folder_name = folder_name.strip("/")
+        full_object_name = f"{folder_name}/{object_name}"
+    else:
+        full_object_name = object_name
+
+    try:
+        minio_client.put_object(
+            bucket_name,
+            full_object_name,
+            io.BytesIO(data_bytes),
+            length=len(data_bytes),
+            content_type="application/x-parquet",
+        )
+        logger.info(f"Successfully wrote {full_object_name} to bucket {bucket_name}")
+    except Exception as e:
+        logger.error(f"Failed to write data to MinIO: {e}")
+EOL
 
 # Create .gitignore with common Python ignores
 cat > $PROJECT_ROOT/.gitignore <<EOL
@@ -395,6 +550,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 .DS_Store
+/data
 EOL
 
 # Create sql/query.sql with starter content
