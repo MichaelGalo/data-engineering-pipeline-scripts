@@ -212,8 +212,7 @@ if __name__ == "__main__":
 EOL
 
 # Create src/utils with duckdb-specific utility functions
-mkdir -p $PROJECT_ROOT/src/utils
-cat > $PROJECT_ROOT/src/utils/duckdb_utils.py <<EOL
+cat > $PROJECT_ROOT/src/utils.py <<EOL
 import sys
 import os
 import io
